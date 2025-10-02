@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: novalei-hub-api
+    env: python
+    # Extract the bundled code archive and then install dependencies.
+    # This ensures that the actual API and web UI files are available at build time.
+    buildCommand: unzip -o novalei-hub-repo_FINAL.zip -d . && pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    plan: free
