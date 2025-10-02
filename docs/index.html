@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novalei Puzzle Hub</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    h1 { margin-bottom: 10px; }
+    section { margin-bottom: 30px; }
+    label { display: block; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; }
+    th { background: #f0f0f0; }
+    img.preview { max-width: 200px; max-height: 200px; }
+    button { margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Novalei Puzzle Hub</h1>
+  <!-- Ingestion section removed because the WordBank is preloaded -->
+  <section id="build">
+    <h2>1. Build Puzzles</h2>
+    <label>Theme:
+      <select id="themeSelect"></select>
+    </label>
+    <label>Type:
+      <select id="typeSelect">
+        <option value="wordsearch">Word Search</option>
+        <option value="crossword">Crossword</option>
+      </select>
+    </label>
+    <label>Count:
+      <input type="number" id="countInput" value="1" min="1" max="5" />
+    </label>
+    <button id="buildBtn">Build</button>
+    <p id="buildStatus"></p>
+  </section>
+  <section id="puzzles">
+    <h2>2. Puzzles</h2>
+    <table id="puzzleTable">
+      <thead>
+        <tr>
+          <th>ID</th><th>Type</th><th>Theme</th><th>Status</th><th>Created</th><th>Preview</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script>
+    // Determine the API base URL from the query string or localStorage. If none is provided,
+    // relative paths will be used (for same-origin deployments like Render where the API
+    // serves the UI). When provided, the base value is stored in localStorage so that
+    // navigating without the query parameter will still work.
+    const params = new URLSearchParams(window.location.search);
+    let API_BASE = params.get('api') || window.localStorage.getItem('apiBase') || '';
+    if (API_BASE) {
+      // Remove any trailing slash for consistency
+      if (API_BASE.endsWith('/')) {
+        API_BASE = API_BASE.slice(0, -1);
+      }
+      window.localStorage.setItem('apiBase', API_BASE);
+    }
+
+    async function refreshThemes() {
+      const sel = document.getElementById('themeSelect');
+      sel.innerHTML = '';
+      try {
+        const resp = await fetch(API_BASE + '/themes');
+        const data = await resp.json();
+        if (data.themes) {
+          data.themes.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function refreshPuzzles() {
+      const tbody = document.querySelector('#puzzleTable tbody');
+      tbody.innerHTML = '';
+      try {
+        const resp = await fetch(API_BASE + '/puzzles');
+        const puzzles = await resp.json();
+        puzzles.forEach(p => {
+          const tr = document.createElement('tr');
+          // Use p.preview if provided, otherwise construct it from the puzzle ID
+          const previewUrl = p.preview || `${API_BASE}/static/${p.id}/puzzle.svg`;
+          tr.innerHTML = `
+            <td>${p.id}</td>
+            <td>${p.type}</td>
+            <td>${p.theme}</td>
+            <td>${p.status}</td>
+            <td>${p.created_at ? p.created_at.substring(0,19).replace('T',' ') : ''}</td>
+            <td><img class="preview" src="${previewUrl}" alt="preview" onerror="this.style.display='none'" /></td>
+            <td>
+              <button data-action="approve" data-id="${p.id}">Approve</button>
+              <button data-action="reject" data-id="${p.id}">Reject</button>
+              <button data-action="revoke" data-id="${p.id}">Revoke</button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    document.getElementById('buildBtn').addEventListener('click', async () => {
+      const buildStatus = document.getElementById('buildStatus');
+      buildStatus.textContent = '';
+      const theme = document.getElementById('themeSelect').value;
+      const type = document.getElementById('typeSelect').value;
+      const count = parseInt(document.getElementById('countInput').value, 10);
+      if (!theme) {
+        buildStatus.textContent = 'Please select a theme.';
+        return;
+      }
+      const payload = { type, theme, count };
+      try {
+        const resp = await fetch(API_BASE + '/puzzles/build', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        buildStatus.textContent = 'Created puzzle IDs: ' + data.created.join(', ');
+        refreshPuzzles();
+      } catch (err) {
+        buildStatus.textContent = 'Error building puzzles.';
+        console.error(err);
+      }
+    });
+
+    document.querySelector('#puzzleTable tbody').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      const id = btn.getAttribute('data-id');
+      if (!action || !id) return;
+      let endpoint;
+      if (action === 'approve') endpoint = '/puzzles/approve';
+      if (action === 'reject') endpoint = '/puzzles/reject';
+      if (action === 'revoke') endpoint = '/puzzles/revoke';
+      if (!endpoint) return;
+      try {
+        await fetch(API_BASE + endpoint + '?puzzle_id=' + id, { method: 'POST' });
+        refreshPuzzles();
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    // Initial load of themes and puzzles when the page loads
+    refreshThemes();
+    refreshPuzzles();
+  </script>
+</body>
+</html>
